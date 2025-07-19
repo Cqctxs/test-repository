@@ -1,25 +1,29 @@
-from flask import Flask, render_template, request, jsonify, flash
-import sqlite3
+# web5/src/app.py - Safe parameterized query
+import psycopg2
+from flask import Flask, request, jsonify
 
 app = Flask(__name__)
-app.secret_key = b'_5#y2L"F4Q8z\n\xec]/'
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+def get_conn():
+    return psycopg2.connect(dbname='app', user='appuser', password='apppass', host='localhost')
 
-@app.route('/login_username', methods=['POST'])
-def login():
-    username = request.form['username']
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    user_info = c.execute(f"SELECT username FROM users WHERE username='{username}'").fetchall()
-    if not user_info:
-        flash('Who are you?', 'error')
-    else:
-        flash(f'Welcome back, {user_info}', 'success')
-    return render_template('index.html')
-    
+@app.route('/profile', methods=['GET'])
+def profile():
+    username = request.args.get('username', '')
+    # Validate username
+    if not username.isalnum():
+        return jsonify({'error':'Invalid username'}), 400
+
+    conn = get_conn()
+    cur = conn.cursor()
+    # Parameterized query to avoid injection
+    cur.execute('SELECT username, full_name, bio FROM profiles WHERE username = %s', (username,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    if not row:
+        return jsonify({'error':'Not found'}), 404
+    return jsonify({'username':row[0], 'full_name':row[1], 'bio':row[2]})
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run(debug=False)
