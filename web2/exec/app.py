@@ -1,33 +1,45 @@
-from flask import Flask, render_template, request
-import sys
-from io import StringIO
+# web2/exec/app.py - Secure version without exec
+from flask import Flask, request, jsonify
+import ast
 
 app = Flask(__name__)
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+# Allowed operations mapping
+def add(a, b): return a + b
+def sub(a, b): return a - b
+def mul(a, b): return a * b
+def div(a, b): return a / b if b != 0 else None
 
-@app.route('/run', methods=['POST'])
-def submit():
-    data = request.form
-    code = data['code']
-    return render_template('index.html', result=run_code(code))
+OPERATIONS = {
+    'add': add,
+    'sub': sub,
+    'mul': mul,
+    'div': div
+}
 
-def run_code(code):
-    # Redirect the output to a string
-    old_stdout = sys.stdout
-    redirected_output = sys.stdout = StringIO()
+@app.route('/compute', methods=['POST'])
+def compute():
+    data = request.get_json()
+    # Input validation
+    op = data.get('operation')
+    a = data.get('a')
+    b = data.get('b')
 
+    if op not in OPERATIONS:
+        return jsonify({'error': 'Invalid operation'}), 400
+
+    # Ensure a and b are numbers
     try:
-        # shhh
-        exec(code)
-        sys.stdout = old_stdout
-    except Exception as e:
-        sys.stdout = old_stdout
-        return e
-    
-    return redirected_output.getvalue()
+        a = float(a)
+        b = float(b)
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Operands must be numeric'}), 400
+
+    result = OPERATIONS[op](a, b)
+    if result is None:
+        return jsonify({'error': 'Division by zero'}), 400
+
+    return jsonify({'result': result})
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run(debug=False)
