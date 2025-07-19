@@ -1,33 +1,31 @@
-from flask import Flask, render_template, request
-import sys
-from io import StringIO
+from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+# Define a safe evaluation environment
+SAFE_GLOBALS = {
+    '__builtins__': {},
+    'abs': abs,
+    'min': min,
+    'max': max,
+    'sum': sum,
+    # add other allowed functions here
+}
 
-@app.route('/run', methods=['POST'])
-def submit():
-    data = request.form
-    code = data['code']
-    return render_template('index.html', result=run_code(code))
-
-def run_code(code):
-    # Redirect the output to a string
-    old_stdout = sys.stdout
-    redirected_output = sys.stdout = StringIO()
-
+@app.route('/compute', methods=['POST'])
+def compute():
+    data = request.get_json(force=True)
+    expression = data.get('expr', '')
+    # Input validation: only allow digits, operators, and parentheses
+    import re
+    if not re.fullmatch(r'[0-9+\-*/(). ]+', expression):
+        return jsonify({'error': 'Invalid characters in expression'}), 400
     try:
-        # shhh
-        exec(code)
-        sys.stdout = old_stdout
+        # Evaluate expression safely without exec
+        result = eval(expression, SAFE_GLOBALS, {})
     except Exception as e:
-        sys.stdout = old_stdout
-        return e
-    
-    return redirected_output.getvalue()
+        return jsonify({'error': 'Evaluation error', 'message': str(e)}), 400
+    return jsonify({'result': result})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
