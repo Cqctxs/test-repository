@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="../static/styles.css">
+    <title>Gem Count</title>
+</head>
+
+<body>
+    <div class="content" style="color:white">
+        <h1>Gem Count</h1>
+        {% for person, balance in data.items() %}
+            <h2>{{ person }}: ${{ balance }}</h2>
+        {% endfor %}
+        <h2>{{ flag }}</h2>
+    </div>
+</body>
+
+</html>

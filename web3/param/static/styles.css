@@ -1,0 +1,75 @@
+body {
+    background:url('hacker.gif');
+    background-repeat: no-repeat;
+    background-size: 100% auto;
+}
+
+h1 {
+    line-height: 1em;
+}
+
+input, button, textarea {
+    padding: 5px;
+    font-size: 17px;
+    border: 1px solid gray;
+}
+
+form {
+    line-height: 1em;
+}
+
+hr {
+    border: 0;
+    border-top: 1px solid gray;
+}
+
+h3 {
+    color: white;
+}
+
+.switch-button {
+    position: absolute;
+    top: 10;
+    padding: 10px;
+    border-radius: 5px;
+    outline: 2px solid #1e510c;
+    background-color: #59db2a;
+    color: #000000;
+    transform: translate(15%, 0);
+    text-decoration: none;
+}
+
+.center {
+    margin: 0;
+    position: fixed;
+    transform: translate(100%, 100%);
+    outline: 2px solid #1e510c;
+    border-radius: 15px;
+}
+
+.form-header {
+    background-color: #1e510c;
+    padding: 1px 100px 1px 25px;
+    border-radius: 15px 15px 0px 0px;
+}
+
+.form-body {
+    padding: 15px 100px 20px 25px;
+    border-radius: 0px 0px 10.5px 10.5px;
+    background-color: white;
+}
+
+.submit {
+    border-radius: 7px;
+    padding: 5px 10px 5px 10px;
+    background-color: #1e510c;
+    color: white;
+}
+
+p {
+    transform: translate(0%, 25%);
+}
+
+div.content {
+    margin-left: 200px;
+}

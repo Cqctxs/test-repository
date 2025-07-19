@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Products</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <style>
+        /* Custom CSS styles */
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f8f9fa;
+            color: #333;
+        }
+
+        .container {
+            margin-top: 3rem;
+        }
+
+        .product-card {
+            border: 1px solid #ddd;
+            padding: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .product-card img {
+            width: 100%;
+            height: auto;
+            margin-bottom: 1rem;
+        }
+
+        .product-card h5 {
+            margin-bottom: 0.5rem;
+        }
+
+        .product-card p {
+            margin-bottom: 0;
+        }
+
+        /* Grid view */
+        .product-row {
+            display: flex;
+            flex-wrap: wrap;
+            margin-right: -15px;
+            margin-left: -15px;
+        }
+
+        .product-col {
+            flex: 0 0 25%;
+            max-width: 25%;
+            padding-right: 15px;
+            padding-left: 15px;
+            margin-bottom: 30px;
+        }
+
+        @media (max-width: 992px) {
+            .product-col {
+                flex: 0 0 33.33%;
+                max-width: 33.33%;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .product-col {
+                flex: 0 0 50%;
+                max-width: 50%;
+            }
+        }
+
+        @media (max-width: 576px) {
+            .product-col {
+                flex: 0 0 100%;
+                max-width: 100%;
+            }
+        }
+
+        .sidebar {
+            position: sticky;
+            top: 20px;
+            background-color: #f8f9fa;
+            padding: 15px;
+            border: 1px solid #ddd;
+        }
+
+        .filter-group {
+            margin-bottom: 1rem;
+        }
+
+        .filter-group label {
+            font-weight: bold;
+        }
+
+        .filter-group select {
+            width: 100%;
+        }
+
+        .footer {
+            background-color: rgba(0, 0, 0, 0.8);
+            color: #fff;
+            padding: 2rem;
+            text-align: center;
+        }
+
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="row">
+            <div class="col-md-8">
+                <h1>Products</h1>
+                <div class="product-row" id="products"></div>
+            </div>
+            <div class="col-md-4">
+                <div class="sidebar">
+                    <div class="filter-group">
+                        <label for="category">Category:</label>
+                        <select id="category" class="form-control">
+                            <option value="">All</option>
+                            <option value="hardware">Hardware</option>
+                            <option value="laptop">Laptops</option>
+                            <option value="accessory">Accessories</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label for="price-sort">Price:</label>
+                        <select id="price-sort" class="form-control">
+                            <option value="low_to_high">Low to High</option>
+                            <option value="high_to_low">High to Low</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Fetch products from the API endpoint
+        const fetchProducts = (category, priceOrder) => {
+            const filterParams = {
+                category,
+                price_order: priceOrder
+            };
+    
+            const url = category ? '/api/products/filter' : '/api/products';
+            const method = category ? 'POST' : 'GET';
+    
+            fetch(url, {
+                method,
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: category ? JSON.stringify(filterParams) : null
+            })
+                .then(response => response.json())
+                .then(products => {
+                    const productsContainer = document.getElementById('products');
+    
+                    // Clear the products container
+                    productsContainer.innerHTML = '';
+    
+                    // Iterate through each product and create a product card
+                    products.forEach(product => {
+                        const productCard = document.createElement('div');
+                        productCard.className = 'product-card product-col';
+    
+                        const image = document.createElement('img');
+                        image.src = product.image_link;
+                        productCard.appendChild(image);
+    
+                        const name = document.createElement('h5');
+                        name.textContent = product.name;
+                        productCard.appendChild(name);
+    
+                        const description = document.createElement('p');
+                        description.textContent = product.description;
+                        productCard.appendChild(description);
+    
+                        const price = document.createElement('p');
+                        price.textContent = 'Price: $' + product.price;
+                        productCard.appendChild(price);
+    
+                        productsContainer.appendChild(productCard);
+                    });
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                });
+        };
+    
+        // Event listener for the category filter
+        const categorySelect = document.getElementById('category');
+        categorySelect.addEventListener('change', () => {
+            const selectedCategory = categorySelect.value;
+            const selectedPriceSort = document.getElementById('price-sort').value;
+    
+            fetchProducts(selectedCategory, selectedPriceSort);
+        });
+    
+        // Event listener for the price sort filter
+        const priceSortSelect = document.getElementById('price-sort');
+        priceSortSelect.addEventListener('change', () => {
+            const selectedCategory = categorySelect.value;
+            const selectedPriceSort = priceSortSelect.value;
+    
+            fetchProducts(selectedCategory, selectedPriceSort);
+        });
+    
+        // Initial fetch of all products
+        fetchProducts('', 'low-to-high');
+    </script>
+    
+    <footer class="footer">
+        <div class="container">
+            <p>&copy; 69420 Walmart. All rights reserved.</p>
+        </div>
+    </footer>
+</body>
+</html>

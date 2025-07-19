@@ -1,0 +1,2 @@
+"src" should NOT be shared with the user
+"dist" should be shared with participants

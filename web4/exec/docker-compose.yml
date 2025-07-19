@@ -1,0 +1,20 @@
+version: '2'
+
+services:
+  db:
+    image: mongo
+    restart: always
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: G2KS97SIBQ26GRJHG
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "1337:1337"
+    environment:
+      MONGO_URI: "mongodb://root:G2KS97SIBQ26GRJHG@db:27017"
+      FLAG: "wxmctf{sus}"
+    hostname: wxmctf.web
+      
