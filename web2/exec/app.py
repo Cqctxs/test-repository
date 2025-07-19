@@ -1,33 +1,49 @@
-from flask import Flask, render_template, request
-import sys
-from io import StringIO
+from flask import Flask, request, jsonify
+import ast
+import operator as op
 
 app = Flask(__name__)
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+# allowed operators for safe eval
+ALLOWED_OPERATORS = {
+    ast.Add: op.add,
+    ast.Sub: op.sub,
+    ast.Mult: op.mul,
+    ast.Div: op.truediv,
+    ast.Pow: op.pow,
+    ast.USub: op.neg
+}
 
-@app.route('/run', methods=['POST'])
-def submit():
-    data = request.form
-    code = data['code']
-    return render_template('index.html', result=run_code(code))
+def safe_eval(expr):
+    """Safely evaluate a math expression using AST, disallowing any code execution."""
+    def _eval(node):
+        if isinstance(node, ast.Num):
+            return node.n
+        if isinstance(node, ast.BinOp):
+            left = _eval(node.left)
+            right = _eval(node.right)
+            operator = ALLOWED_OPERATORS[type(node.op)]
+            return operator(left, right)
+        if isinstance(node, ast.UnaryOp):
+            operand = _eval(node.operand)
+            operator = ALLOWED_OPERATORS[type(node.op)]
+            return operator(operand)
+        raise ValueError(f"Unsupported expression: {node}")
+    node = ast.parse(expr, mode='eval').body
+    return _eval(node)
 
-def run_code(code):
-    # Redirect the output to a string
-    old_stdout = sys.stdout
-    redirected_output = sys.stdout = StringIO()
-
+@app.route('/calculate', methods=['POST'])
+def calculate():
+    data = request.get_json() or {}
+    expr = data.get('expression', '')
     try:
-        # shhh
-        exec(code)
-        sys.stdout = old_stdout
+        # Validate input: must match allowed pattern
+        if not isinstance(expr, str) or not expr.replace(' ', '').replace('.', '').replace('+','').replace('-','').replace('*','').replace('/','').isalnum():
+            raise ValueError("Invalid characters in expression")
+        result = safe_eval(expr)
+        return jsonify({'result': result}), 200
     except Exception as e:
-        sys.stdout = old_stdout
-        return e
-    
-    return redirected_output.getvalue()
+        return jsonify({'error': str(e)}), 400
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run(debug=False)

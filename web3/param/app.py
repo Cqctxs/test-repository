@@ -1,43 +1,45 @@
-import os
-from flask import Flask, request, render_template, redirect
+from flask import Flask, request, jsonify, abort, session, redirect, url_for
 import requests
-import json
-app = Flask(__name__, static_url_path="/static")
+from functools import wraps
 
-flag = os.environ.get("FLAG")
-# this is so scuffed .-.
-os.system("apachectl start")
+app = Flask(__name__)
+app.secret_key = 'REPLACE_WITH_SECURE_RANDOM_KEY'
 
-@app.route("/")
-def send_money():
-    response = requests.get("http://localhost:80/gateway.php").content
-    accounts = json.loads(response)
-    return render_template("send-money.html", data=accounts)
+# Dummy user store
+USERS = {'admin': 'password123'}
 
-@app.route("/check-balance", methods=["GET"])
-def check():
-    response = requests.get("http://localhost:80/gateway.php").content
-    accounts = json.loads(response)
+def login_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if 'username' not in session:
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated
 
-    if (accounts["Eatingfood"] < 0):
-        return render_template("check-balance.html", data=accounts, flag=":(")
-    if (accounts["Eatingfood"] >= 100000):
-        return render_template("check-balance.html", data=accounts, flag=flag)
-    return render_template("check-balance.html", data=accounts)
+@app.route('/login', methods=['GET','POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        if USERS.get(username) == password:
+            session['username'] = username
+            return redirect(url_for('proxy'))
+        return abort(401)
+    return '''<form method="post">Username: <input name="username">Password: <input name="password" type="password"><input type="submit"></form>'''
 
-@app.route("/send", methods=["POST"])
-def send_data():
-    raw_data = request.get_data()
-    recipient = request.form.get("recipient");
-    amount = request.form.get("amount");
+@app.route('/proxy', methods=['POST'])
+@login_required
+def proxy():
+    # Validate and sanitize URL
+    url = request.json.get('url')
+    if not url or not url.startswith('https://example.com/'):  # allowlist
+        return jsonify({'error': 'Invalid or unauthorized URL'}), 400
+    try:
+        # Proxy request using requests library instead of os.system
+        resp = requests.post(url, json=request.json.get('data', {}), timeout=5)
+        return (resp.text, resp.status_code, resp.headers.items())
+    except requests.RequestException as e:
+        return jsonify({'error': str(e)}), 502
 
-    if (amount == None or (not amount.isdigit()) or int(amount) < 0 or recipient == None or recipient == "Eatingfood"):
-        return redirect("https://media.tenor.com/UlIwB2YVcGwAAAAC/waah-waa.gif")
-    
-    # Send the data to the Apache PHP server
-    raw_data = b"sender=Eatingfood&" + raw_data;
-    requests.post("http://localhost:80/gateway.php", headers={"content-type": request.headers.get("content-type")}, data=raw_data)
-    return redirect("/check-balance")
-
-if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=5000)
+if __name__ == '__main__':
+    app.run(debug=False)
