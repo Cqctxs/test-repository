@@ -1,25 +1,30 @@
-from flask import Flask, render_template, request, jsonify, flash
+# web5/dist/app.py - Parameterized query to prevent SQL injection
 import sqlite3
+from flask import Flask, request, jsonify
 
 app = Flask(__name__)
-app.secret_key = b'_5#y2L"F4Q8z\n\xec]/'
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+def get_db():
+    conn = sqlite3.connect('data.db')
+    conn.row_factory = sqlite3.Row
+    return conn
 
-@app.route('/login_username', methods=['POST'])
-def login():
-    username = request.form['username']
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    user_info = c.execute(f"SELECT username FROM users WHERE username='{username}'").fetchall()
-    if not user_info:
-        flash('Who are you?', 'error')
-    else:
-        flash(f'Welcome back, {user_info}', 'success')
-    return render_template('index.html')
-    
+@app.route('/user', methods=['GET'])
+def get_user():
+    user_id = request.args.get('id')
+    try:
+        uid = int(user_id)
+    except (TypeError, ValueError):
+        return jsonify({'error':'Invalid user id'}), 400
+
+    conn = get_db()
+    # Use parameterized query
+    cur = conn.execute('SELECT id, name, email FROM users WHERE id = ?', (uid,))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return jsonify({'error':'User not found'}), 404
+    return jsonify(dict(row))
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run(debug=False)
