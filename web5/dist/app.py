@@ -1,25 +1,26 @@
-from flask import Flask, render_template, request, jsonify, flash
 import sqlite3
+from flask import Flask, request, jsonify
 
 app = Flask(__name__)
-app.secret_key = b'_5#y2L"F4Q8z\n\xec]/'
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+def get_db():
+    conn = sqlite3.connect('app.db')
+    conn.row_factory = sqlite3.Row
+    return conn
 
-@app.route('/login_username', methods=['POST'])
-def login():
-    username = request.form['username']
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    user_info = c.execute(f"SELECT username FROM users WHERE username='{username}'").fetchall()
-    if not user_info:
-        flash('Who are you?', 'error')
-    else:
-        flash(f'Welcome back, {user_info}', 'success')
-    return render_template('index.html')
-    
+@app.route('/search', methods=['GET'])
+def search():
+    q = request.args.get('q', '')
+    # Input sanitization: limit length
+    if len(q) > 100:
+        return jsonify({'error':'Query too long'}), 400
+
+    conn = get_db()
+    # Parameterized query
+    cursor = conn.execute('SELECT id, name, description FROM products WHERE name LIKE ?', ('%'+q+'%',))
+    results = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return jsonify(results)
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run(debug=True)
