@@ -1,43 +1,72 @@
 import os
-from flask import Flask, request, render_template, redirect
+import re
+from decimal import Decimal
+from flask import Flask, request, session, redirect, abort, url_for
 import requests
-import json
-app = Flask(__name__, static_url_path="/static")
 
-flag = os.environ.get("FLAG")
-# this is so scuffed .-.
-os.system("apachectl start")
+app = Flask(__name__)
+app.secret_key = os.environ.get('SECRET_KEY', 'REPLACE_WITH_SECURE_KEY')
 
-@app.route("/")
+# Simple login_required decorator
+from functools import wraps
+def login_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if 'user' not in session:
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated
+
+@app.route('/login', methods=['GET','POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        # TODO: replace with real authentication and secure credential store
+        if authenticate(username, password):
+            session['user'] = username
+            return redirect(url_for('send_money'))
+        abort(401, 'Invalid credentials')
+    return '''
+    <form method="post">
+      <input name="username"/>
+      <input name="password" type="password"/>
+      <input type="submit"/>
+    </form>
+    '''
+
+@app.route('/send', methods=['POST'])
+@login_required
 def send_money():
-    response = requests.get("http://localhost:80/gateway.php").content
-    accounts = json.loads(response)
-    return render_template("send-money.html", data=accounts)
+    from_acc = request.form.get('from')
+    to_acc = request.form.get('to')
+    amount_str = request.form.get('amount')
 
-@app.route("/check-balance", methods=["GET"])
-def check():
-    response = requests.get("http://localhost:80/gateway.php").content
-    accounts = json.loads(response)
+    # Validate account format
+    if not re.fullmatch(r'\d+', from_acc) or not re.fullmatch(r'\d+', to_acc):
+        abort(400, 'Invalid account format')
+    # Ensure user owns the account
+    if session['user'] != from_acc:
+        abort(403, 'Cannot send from this account')
+    # Validate amount
+    try:
+        amount = Decimal(amount_str)
+    except:
+        abort(400, 'Invalid amount')
+    if amount <= 0:
+        abort(400, 'Amount must be positive')
 
-    if (accounts["Eatingfood"] < 0):
-        return render_template("check-balance.html", data=accounts, flag=":(")
-    if (accounts["Eatingfood"] >= 100000):
-        return render_template("check-balance.html", data=accounts, flag=flag)
-    return render_template("check-balance.html", data=accounts)
+    # Securely call PHP backend with JSON and auth header
+    payload = {'from': from_acc, 'to': to_acc, 'amount': str(amount)}
+    headers = {'Authorization': f"Bearer {os.environ.get('BACKEND_TOKEN')}"}
+    resp = requests.post(
+        'https://backend.example.com/transfer.php',
+        json=payload,
+        headers=headers,
+        timeout=5
+    )
+    resp.raise_for_status()
+    return resp.text
 
-@app.route("/send", methods=["POST"])
-def send_data():
-    raw_data = request.get_data()
-    recipient = request.form.get("recipient");
-    amount = request.form.get("amount");
-
-    if (amount == None or (not amount.isdigit()) or int(amount) < 0 or recipient == None or recipient == "Eatingfood"):
-        return redirect("https://media.tenor.com/UlIwB2YVcGwAAAAC/waah-waa.gif")
-    
-    # Send the data to the Apache PHP server
-    raw_data = b"sender=Eatingfood&" + raw_data;
-    requests.post("http://localhost:80/gateway.php", headers={"content-type": request.headers.get("content-type")}, data=raw_data)
-    return redirect("/check-balance")
-
-if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=5000)
+if __name__ == '__main__':
+    app.run()

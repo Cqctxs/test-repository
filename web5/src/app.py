@@ -1,25 +1,37 @@
-from flask import Flask, render_template, request, jsonify, flash
 import sqlite3
+from flask import Flask, request, jsonify, abort
 
 app = Flask(__name__)
-app.secret_key = b'_5#y2L"F4Q8z\n\xec]/'
+DATABASE = 'users.db'
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+def get_db():
+    conn = sqlite3.connect(DATABASE)
+    conn.row_factory = sqlite3.Row
+    return conn
 
-@app.route('/login_username', methods=['POST'])
+@app.route('/login', methods=['POST'])
 def login():
-    username = request.form['username']
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    user_info = c.execute(f"SELECT username FROM users WHERE username='{username}'").fetchall()
-    if not user_info:
-        flash('Who are you?', 'error')
-    else:
-        flash(f'Welcome back, {user_info}', 'success')
-    return render_template('index.html')
-    
+    data = request.get_json() or {}
+    username = data.get('username', '')
+    password = data.get('password', '')
+
+    # Input validation
+    if not isinstance(username, str) or not username.isalnum():
+        abort(400, 'Invalid username')
+    if not isinstance(password, str) or len(password) < 8:
+        abort(400, 'Invalid password')
+
+    conn = get_db()
+    cursor = conn.cursor()
+    # Parameterized query
+    cursor.execute("SELECT password_hash FROM users WHERE username = ?", (username,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if row and verify_password(password, row['password_hash']):
+        token = generate_token(username)
+        return jsonify({'token': token})
+    abort(401, 'Authentication failed')
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run()
