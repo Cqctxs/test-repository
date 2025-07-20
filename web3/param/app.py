@@ -1,43 +1,48 @@
-import os
-from flask import Flask, request, render_template, redirect
 import requests
-import json
-app = Flask(__name__, static_url_path="/static")
+from flask import Flask, request, session, jsonify
 
-flag = os.environ.get("FLAG")
-# this is so scuffed .-.
-os.system("apachectl start")
+app = Flask(__name__)
+app.secret_key = 'replace_with_secure_random'
 
-@app.route("/")
-def send_money():
-    response = requests.get("http://localhost:80/gateway.php").content
-    accounts = json.loads(response)
-    return render_template("send-money.html", data=accounts)
+ALLOWED_RECIPIENTS = {'alice', 'bob', 'charlie'}
 
-@app.route("/check-balance", methods=["GET"])
-def check():
-    response = requests.get("http://localhost:80/gateway.php").content
-    accounts = json.loads(response)
+@app.route('/transfer', methods=['POST'])
+def transfer():
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
 
-    if (accounts["Eatingfood"] < 0):
-        return render_template("check-balance.html", data=accounts, flag=":(")
-    if (accounts["Eatingfood"] >= 100000):
-        return render_template("check-balance.html", data=accounts, flag=flag)
-    return render_template("check-balance.html", data=accounts)
+    sender = session['user_id']
+    data = request.json or {}
+    recipient = data.get('recipient')
+    amount = data.get('amount')
 
-@app.route("/send", methods=["POST"])
-def send_data():
-    raw_data = request.get_data()
-    recipient = request.form.get("recipient");
-    amount = request.form.get("amount");
+    # Validate types
+    try:
+        amount = float(amount)
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Invalid amount'}), 400
 
-    if (amount == None or (not amount.isdigit()) or int(amount) < 0 or recipient == None or recipient == "Eatingfood"):
-        return redirect("https://media.tenor.com/UlIwB2YVcGwAAAAC/waah-waa.gif")
-    
-    # Send the data to the Apache PHP server
-    raw_data = b"sender=Eatingfood&" + raw_data;
-    requests.post("http://localhost:80/gateway.php", headers={"content-type": request.headers.get("content-type")}, data=raw_data)
-    return redirect("/check-balance")
+    if amount <= 0:
+        return jsonify({'error': 'Amount must be positive'}), 400
 
-if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=5000)
+    # Allowlist check
+    if recipient not in ALLOWED_RECIPIENTS:
+        return jsonify({'error': 'Recipient not allowed'}), 403
+
+    # Forward request securely to backend PHP service
+    backend_url = 'https://internal-service.local/process'
+    headers = {'Authorization': f"Bearer {session.get('auth_token')}"}
+    try:
+        resp = requests.post(backend_url, json={
+            'sender': sender,
+            'recipient': recipient,
+            'amount': amount
+        }, headers=headers, timeout=5)
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        return jsonify({'error': 'Transfer failed', 'details': str(e)}), 502
+
+    return jsonify(resp.json()), resp.status_code
+
+if __name__ == '__main__':
+    app.run(debug=True)

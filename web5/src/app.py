@@ -1,25 +1,30 @@
-from flask import Flask, render_template, request, jsonify, flash
-import sqlite3
+import psycopg2
+from flask import Flask, request, jsonify
 
 app = Flask(__name__)
-app.secret_key = b'_5#y2L"F4Q8z\n\xec]/'
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+# Database connection settings
+DB_CONFIG = {
+    'dbname': 'mydb',
+    'user': 'dbuser',
+    'password': 'secret',
+    'host': 'localhost'
+}
 
-@app.route('/login_username', methods=['POST'])
-def login():
-    username = request.form['username']
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    user_info = c.execute(f"SELECT username FROM users WHERE username='{username}'").fetchall()
-    if not user_info:
-        flash('Who are you?', 'error')
-    else:
-        flash(f'Welcome back, {user_info}', 'success')
-    return render_template('index.html')
-    
+def get_connection():
+    return psycopg2.connect(**DB_CONFIG)
+
+@app.route('/search')
+def search_users():
+    name = request.args.get('name', '')
+    conn = get_connection()
+    cur = conn.cursor()
+    # Use parameterized query to prevent SQL injection
+    cur.execute('SELECT id, name, email FROM users WHERE name ILIKE %s', (f"%{name}%",))
+    rows = cur.fetchall()
+    conn.close()
+    results = [{'id': r[0], 'name': r[1], 'email': r[2]} for r in rows]
+    return jsonify(results)
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run(debug=True)
