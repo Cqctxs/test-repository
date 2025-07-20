@@ -1,26 +1,27 @@
+import os
 import sqlite3
+import bcrypt
 
-# Connect to the SQLite database
-conn = sqlite3.connect('users.db')
+# Use environment-supplied flag rather than hardcoding
+FLAG = os.getenv('DB_FLAG')
+if not FLAG:
+    raise RuntimeError('DB_FLAG environment variable is required')
+
+DB_PATH = os.getenv('SQLITE_PATH', 'users.db')
+conn = sqlite3.connect(DB_PATH)
 c = conn.cursor()
 
-# Create table if not exists
-c.execute('''CREATE TABLE IF NOT EXISTS users
-             (username TEXT PRIMARY KEY, password TEXT)''')
+# Create users table if not exists
+c.execute('''CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL
+)''')
 
-# Sample user data
-users_data = [
-    ('Alice', 'wxmctf{'),
-    ('Bob', 'j0k35_0n_y0u'),
-    ('Charlie', '_th3r3_4r3'),
-    ('David', 'n0_nucl34r'),
-    ('Eve', '_l4nch_c0d35}')]
+# Hash the flag to avoid storing it in plaintext
+password_hash = bcrypt.hashpw(FLAG.encode('utf-8'), bcrypt.gensalt())
+c.execute('INSERT OR IGNORE INTO users (username, password_hash) VALUES (?, ?)',
+          ('flag_user', password_hash.decode('utf-8')))
 
-# Insert sample data into the table
-c.executemany("INSERT INTO users VALUES (?, ?)", users_data)
-
-# Commit changes and close connection
 conn.commit()
 conn.close()
-
-print("Data inserted successfully into users.db.")
