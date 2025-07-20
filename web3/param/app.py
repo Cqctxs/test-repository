@@ -1,43 +1,89 @@
-import os
-from flask import Flask, request, render_template, redirect
-import requests
-import json
-app = Flask(__name__, static_url_path="/static")
+from flask import Flask, request, jsonify, session, redirect, url_for
+from werkzeug.security import generate_password_hash, check_password_hash
+import sqlite3
+import re
 
-flag = os.environ.get("FLAG")
-# this is so scuffed .-.
-os.system("apachectl start")
+app = Flask(__name__)
+app.secret_key = 'REPLACE_WITH_SECURE_RANDOM_KEY'
 
-@app.route("/")
-def send_money():
-    response = requests.get("http://localhost:80/gateway.php").content
-    accounts = json.loads(response)
-    return render_template("send-money.html", data=accounts)
+DATABASE = 'bank.db'
 
-@app.route("/check-balance", methods=["GET"])
-def check():
-    response = requests.get("http://localhost:80/gateway.php").content
-    accounts = json.loads(response)
+# Simple DB helper
+def get_db():
+    conn = sqlite3.connect(DATABASE)
+    conn.row_factory = sqlite3.Row
+    return conn
 
-    if (accounts["Eatingfood"] < 0):
-        return render_template("check-balance.html", data=accounts, flag=":(")
-    if (accounts["Eatingfood"] >= 100000):
-        return render_template("check-balance.html", data=accounts, flag=flag)
-    return render_template("check-balance.html", data=accounts)
+# Authentication routes
+@app.route('/login', methods=['POST'])
+def login():
+    username = request.form.get('username', '')
+    password = request.form.get('password', '')
+    conn = get_db()
+    user = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
+    if user and check_password_hash(user['password_hash'], password):
+        session['user_id'] = user['id']
+        session['is_admin'] = bool(user['is_admin'])
+        return redirect(url_for('dashboard'))
+    return jsonify({'error': 'Invalid credentials'}), 401
 
-@app.route("/send", methods=["POST"])
-def send_data():
-    raw_data = request.get_data()
-    recipient = request.form.get("recipient");
-    amount = request.form.get("amount");
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('login'))
 
-    if (amount == None or (not amount.isdigit()) or int(amount) < 0 or recipient == None or recipient == "Eatingfood"):
-        return redirect("https://media.tenor.com/UlIwB2YVcGwAAAAC/waah-waa.gif")
-    
-    # Send the data to the Apache PHP server
-    raw_data = b"sender=Eatingfood&" + raw_data;
-    requests.post("http://localhost:80/gateway.php", headers={"content-type": request.headers.get("content-type")}, data=raw_data)
-    return redirect("/check-balance")
+# Decorator to enforce login
+from functools import wraps
 
-if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=5000)
+def login_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if 'user_id' not in session:
+            return jsonify({'error': 'Authentication required'}), 401
+        return f(*args, **kwargs)
+    return decorated
+
+# Dashboard placeholder
+@app.route('/dashboard')
+@login_required
+def dashboard():
+    return jsonify({'message': 'Welcome!'}), 200
+
+# Money transfer endpoint
+@app.route('/transfer', methods=['POST'])
+@login_required
+def transfer():
+    data = request.get_json() or {}
+    to_account = data.get('to_account')
+    amount = data.get('amount')
+    # Validate amount and account
+    if not re.fullmatch(r"\d+", str(to_account)) or not isinstance(amount, (int, float)) or amount <= 0:
+        return jsonify({'error': 'Invalid input'}), 400
+    user_id = session['user_id']
+    conn = get_db()
+    sender = conn.execute('SELECT balance FROM accounts WHERE user_id = ?', (user_id,)).fetchone()
+    receiver = conn.execute('SELECT balance FROM accounts WHERE user_id = ?', (to_account,)).fetchone()
+    if not receiver:
+        return jsonify({'error': 'Recipient not found'}), 404
+    if sender['balance'] < amount:
+        return jsonify({'error': 'Insufficient funds'}), 400
+    # Perform transfer within a transaction
+    conn.execute('BEGIN')
+    conn.execute('UPDATE accounts SET balance = balance - ? WHERE user_id = ?', (amount, user_id))
+    conn.execute('UPDATE accounts SET balance = balance + ? WHERE user_id = ?', (amount, to_account))
+    conn.commit()
+    return jsonify({'status': 'success'}), 200
+
+# Flag endpoint - admin only
+@app.route('/flag')
+@login_required
+def get_flag():
+    if not session.get('is_admin'):
+        return jsonify({'error': 'Forbidden'}), 403
+    # The flag is stored securely on the server side or in env
+    import os
+    flag = os.getenv('APP_FLAG', 'FLAG_NOT_SET')
+    return jsonify({'flag': flag}), 200
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5001)
