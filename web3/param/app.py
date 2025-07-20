@@ -1,43 +1,48 @@
 import os
-from flask import Flask, request, render_template, redirect
+from decimal import Decimal, InvalidOperation
+from flask import Flask, request, session, jsonify
 import requests
-import json
-app = Flask(__name__, static_url_path="/static")
 
-flag = os.environ.get("FLAG")
-# this is so scuffed .-.
-os.system("apachectl start")
+app = Flask(__name__)
+app.secret_key = os.getenv('FLASK_SECRET_KEY', 'replace_with_real_secret')
+GATEWAY_URL = os.getenv('GATEWAY_URL')
+API_TOKEN = os.getenv('API_TOKEN')  # must match gateway's expected token
 
-@app.route("/")
-def send_money():
-    response = requests.get("http://localhost:80/gateway.php").content
-    accounts = json.loads(response)
-    return render_template("send-money.html", data=accounts)
+@app.route('/login', methods=['POST'])
+def login():
+    # Example login: set session.user_id on success
+    user = authenticate(request.form.get('username'), request.form.get('password'))
+    if not user:
+        return jsonify({'error': 'Invalid credentials'}), 401
+    session['user_id'] = user.id
+    return jsonify({'status': 'logged in'})
 
-@app.route("/check-balance", methods=["GET"])
-def check():
-    response = requests.get("http://localhost:80/gateway.php").content
-    accounts = json.loads(response)
+@app.route('/transfer', methods=['POST'])
+def transfer():
+    # Ensure the user is authenticated
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
 
-    if (accounts["Eatingfood"] < 0):
-        return render_template("check-balance.html", data=accounts, flag=":(")
-    if (accounts["Eatingfood"] >= 100000):
-        return render_template("check-balance.html", data=accounts, flag=flag)
-    return render_template("check-balance.html", data=accounts)
+    # Validate and sanitize inputs
+    try:
+        acct_id = int(request.form.get('id', ''))
+        amount = Decimal(request.form.get('amount', ''))
+    except (ValueError, InvalidOperation):
+        return jsonify({'error': 'Invalid input format'}), 400
+    if amount <= 0:
+        return jsonify({'error': 'Amount must be positive'}), 400
 
-@app.route("/send", methods=["POST"])
-def send_data():
-    raw_data = request.get_data()
-    recipient = request.form.get("recipient");
-    amount = request.form.get("amount");
+    # Forward to gateway with strong authentication
+    headers = {
+        'Authorization': f'Bearer {API_TOKEN}',
+        'Content-Type': 'application/json'
+    }
+    payload = {'id': acct_id, 'amount': str(amount)}
+    try:
+        resp = requests.post(GATEWAY_URL, json=payload, headers=headers, timeout=5)
+        return jsonify(resp.json()), resp.status_code
+    except requests.RequestException:
+        return jsonify({'error': 'Gateway unavailable'}), 503
 
-    if (amount == None or (not amount.isdigit()) or int(amount) < 0 or recipient == None or recipient == "Eatingfood"):
-        return redirect("https://media.tenor.com/UlIwB2YVcGwAAAAC/waah-waa.gif")
-    
-    # Send the data to the Apache PHP server
-    raw_data = b"sender=Eatingfood&" + raw_data;
-    requests.post("http://localhost:80/gateway.php", headers={"content-type": request.headers.get("content-type")}, data=raw_data)
-    return redirect("/check-balance")
-
-if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=5000)
+if __name__ == '__main__':
+    app.run(debug=False)
