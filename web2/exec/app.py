@@ -1,33 +1,35 @@
-from flask import Flask, render_template, request
-import sys
-from io import StringIO
+import ast
+import traceback
 
+# Only allow arithmetic expressions and simple Python operations
+def safe_eval(expr):
+    # Parse expression to AST
+    tree = ast.parse(expr, mode='eval')
+    # Define allowed node types
+    allowed_nodes = {
+        ast.Expression, ast.BinOp, ast.UnaryOp,
+        ast.Num, ast.Load, ast.Add, ast.Sub,
+        ast.Mult, ast.Div, ast.Pow, ast.Mod,
+        ast.UAdd, ast.USub, ast.Tuple, ast.List,
+    }
+    for node in ast.walk(tree):
+        if type(node) not in allowed_nodes:
+            raise ValueError(f"Disallowed expression: {type(node).__name__}")
+    return eval(compile(tree, '<string>', 'eval'))
+
+from flask import Flask, request, jsonify
 app = Flask(__name__)
 
-@app.route('/')
-def index():
-    return render_template('index.html')
-
-@app.route('/run', methods=['POST'])
-def submit():
-    data = request.form
-    code = data['code']
-    return render_template('index.html', result=run_code(code))
-
-def run_code(code):
-    # Redirect the output to a string
-    old_stdout = sys.stdout
-    redirected_output = sys.stdout = StringIO()
-
+@app.route('/calculate', methods=['POST'])
+def calculate():
+    data = request.get_json() or {}
+    expr = data.get('expression', '')
     try:
-        # shhh
-        exec(code)
-        sys.stdout = old_stdout
+        result = safe_eval(expr)
+        return jsonify({'result': result})
     except Exception as e:
-        sys.stdout = old_stdout
-        return e
-    
-    return redirected_output.getvalue()
+        traceback.print_exc()
+        return jsonify({'error': 'Invalid expression'}), 400
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run()
