@@ -1,33 +1,32 @@
-from flask import Flask, render_template, request
-import sys
-from io import StringIO
+import ast
+from flask import Flask, request, abort
 
 app = Flask(__name__)
 
-@app.route('/')
-def index():
-    return render_template('index.html')
-
-@app.route('/run', methods=['POST'])
-def submit():
-    data = request.form
-    code = data['code']
-    return render_template('index.html', result=run_code(code))
-
-def run_code(code):
-    # Redirect the output to a string
-    old_stdout = sys.stdout
-    redirected_output = sys.stdout = StringIO()
-
+def safe_eval(expr):
+    """
+    Safely evaluate simple arithmetic expressions.
+    Only allows numbers and arithmetic operators.
+    """
     try:
-        # shhh
-        exec(code)
-        sys.stdout = old_stdout
-    except Exception as e:
-        sys.stdout = old_stdout
-        return e
-    
-    return redirected_output.getvalue()
+        node = ast.parse(expr, mode='eval')
+    except SyntaxError:
+        abort(400, 'Invalid syntax')
+
+    for n in ast.walk(node):
+        # Only allow literal numbers and arithmetic operations
+        if not isinstance(n, (ast.Expression, ast.BinOp, ast.UnaryOp,
+                              ast.Num, ast.Constant,
+                              ast.operator, ast.unaryop)):
+            abort(400, 'Disallowed expression')
+    # Evaluate without builtins to prevent code injection
+    return eval(compile(node, '<string>', 'eval'), {'__builtins__': None}, {})
+
+@app.route('/run_code', methods=['POST'])
+def run_code():
+    code = request.form.get('code', '')
+    result = safe_eval(code)
+    return str(result)
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run()
