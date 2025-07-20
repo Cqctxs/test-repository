@@ -1,43 +1,66 @@
-import os
-from flask import Flask, request, render_template, redirect
-import requests
-import json
-app = Flask(__name__, static_url_path="/static")
+from flask import Flask, request, jsonify, session, redirect, url_for
+from functools import wraps
+import hashlib
 
-flag = os.environ.get("FLAG")
-# this is so scuffed .-.
-os.system("apachectl start")
+app = Flask(__name__)
+app.secret_key = 'replace_with_strong_secret'
+# Stub in-memory user store and balances
+USERS = {'alice': hashlib.sha256(b'alicepass').hexdigest()}
+BALANCES = {'alice': 1000}
+FLAG = 'FLAG{secret}'
 
-@app.route("/")
-def send_money():
-    response = requests.get("http://localhost:80/gateway.php").content
-    accounts = json.loads(response)
-    return render_template("send-money.html", data=accounts)
+# Authentication decorator
+def login_required(f):
+    @wraps(f)
+    def wrapped(*args, **kwargs):
+        if 'username' not in session:
+            return jsonify({'error':'Authentication required'}), 401
+        return f(*args, **kwargs)
+    return wrapped
 
-@app.route("/check-balance", methods=["GET"])
-def check():
-    response = requests.get("http://localhost:80/gateway.php").content
-    accounts = json.loads(response)
+@app.route('/login', methods=['POST'])
+def login():
+    data = request.get_json()
+    user = data.get('username')
+    pw = data.get('password','').encode()
+    if user in USERS and hashlib.sha256(pw).hexdigest() == USERS[user]:
+        session['username'] = user
+        return jsonify({'message':'Logged in'}), 200
+    return jsonify({'error':'Invalid credentials'}), 403
 
-    if (accounts["Eatingfood"] < 0):
-        return render_template("check-balance.html", data=accounts, flag=":(")
-    if (accounts["Eatingfood"] >= 100000):
-        return render_template("check-balance.html", data=accounts, flag=flag)
-    return render_template("check-balance.html", data=accounts)
+@app.route('/balance', methods=['GET'])
+@login_required
+def balance():
+    user = session['username']
+    return jsonify({'balance': BALANCES.get(user,0)}), 200
 
-@app.route("/send", methods=["POST"])
-def send_data():
-    raw_data = request.get_data()
-    recipient = request.form.get("recipient");
-    amount = request.form.get("amount");
+@app.route('/transfer', methods=['POST'])
+@login_required
+def transfer():
+    data = request.get_json()
+    to_user = data.get('to')
+    amount = data.get('amount')
+    from_user = session['username']
+    # Input validation
+    if to_user not in USERS:
+        return jsonify({'error':'Recipient not found'}), 400
+    try:
+        amt = float(amount)
+    except ValueError:
+        return jsonify({'error':'Invalid amount'}), 400
+    if amt <= 0 or BALANCES[from_user] < amt:
+        return jsonify({'error':'Insufficient funds'}), 400
+    BALANCES[from_user] -= amt
+    BALANCES[to_user] = BALANCES.get(to_user,0) + amt
+    return jsonify({'message':'Transfer complete'}), 200
 
-    if (amount == None or (not amount.isdigit()) or int(amount) < 0 or recipient == None or recipient == "Eatingfood"):
-        return redirect("https://media.tenor.com/UlIwB2YVcGwAAAAC/waah-waa.gif")
-    
-    # Send the data to the Apache PHP server
-    raw_data = b"sender=Eatingfood&" + raw_data;
-    requests.post("http://localhost:80/gateway.php", headers={"content-type": request.headers.get("content-type")}, data=raw_data)
-    return redirect("/check-balance")
+@app.route('/flag', methods=['GET'])
+@login_required
+def get_flag():
+    # Only allow if user balance exceeds threshold
+    if BALANCES[session['username']] >= 10000:
+        return jsonify({'flag': FLAG}), 200
+    return jsonify({'error':'Not authorized to view flag'}), 403
 
-if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=5000)
+if __name__ == '__main__':
+    app.run(debug=False)
