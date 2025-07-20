@@ -1,43 +1,40 @@
 import os
-from flask import Flask, request, render_template, redirect
+import subprocess
+from flask import Flask, request, session, redirect, abort
 import requests
-import json
-app = Flask(__name__, static_url_path="/static")
 
-flag = os.environ.get("FLAG")
-# this is so scuffed .-.
-os.system("apachectl start")
+app = Flask(__name__)
+app.secret_key = 'replace-with-secure-key'
 
-@app.route("/")
-def send_money():
-    response = requests.get("http://localhost:80/gateway.php").content
-    accounts = json.loads(response)
-    return render_template("send-money.html", data=accounts)
+@app.route('/transfer', methods=['POST'])
+def transfer():
+    # Authorization check
+    if 'user_id' not in session:
+        abort(401)
+    data = request.get_json()
+    acct = data.get('account')
+    amt  = data.get('amount')
+    # Input validation
+    if not isinstance(acct, str) or not acct.isalnum():
+        abort(400)
+    if not isinstance(amt, (int, float)) or amt <= 0:
+        abort(400)
+    # Call PHP gateway via HTTP instead of os.system
+    try:
+        resp = requests.post(
+            'https://gateway.example.com/transfer',
+            json={'from': session['user_id'], 'to': acct, 'amount': amt},
+            timeout=5,
+            headers={'Authorization': 'Bearer ' + session.get('api_token','')}
+        )
+        resp.raise_for_status()
+    except Exception:
+        abort(502)
+    return resp.text
 
-@app.route("/check-balance", methods=["GET"])
-def check():
-    response = requests.get("http://localhost:80/gateway.php").content
-    accounts = json.loads(response)
-
-    if (accounts["Eatingfood"] < 0):
-        return render_template("check-balance.html", data=accounts, flag=":(")
-    if (accounts["Eatingfood"] >= 100000):
-        return render_template("check-balance.html", data=accounts, flag=flag)
-    return render_template("check-balance.html", data=accounts)
-
-@app.route("/send", methods=["POST"])
-def send_data():
-    raw_data = request.get_data()
-    recipient = request.form.get("recipient");
-    amount = request.form.get("amount");
-
-    if (amount == None or (not amount.isdigit()) or int(amount) < 0 or recipient == None or recipient == "Eatingfood"):
-        return redirect("https://media.tenor.com/UlIwB2YVcGwAAAAC/waah-waa.gif")
-    
-    # Send the data to the Apache PHP server
-    raw_data = b"sender=Eatingfood&" + raw_data;
-    requests.post("http://localhost:80/gateway.php", headers={"content-type": request.headers.get("content-type")}, data=raw_data)
-    return redirect("/check-balance")
-
-if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=5000)
+@app.route('/login', methods=['POST'])
+def login():
+    # Dummy login for demonstration
+    session['user_id'] = request.form['username']
+    session['api_token'] = 'fetch-token-from-auth-service'
+    return redirect('/')
