@@ -1,33 +1,51 @@
-from flask import Flask, render_template, request
-import sys
-from io import StringIO
+# web2/exec/app.py
+from flask import Flask, request, jsonify
+import ast
+import operator as op
 
 app = Flask(__name__)
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+# supported operators for safe eval
+a_allowed_operators = {
+    ast.Add: op.add,
+    ast.Sub: op.sub,
+    ast.Mult: op.mul,
+    ast.Div: op.truediv,
+    ast.Pow: op.pow,
+    ast.USub: op.neg
+}
 
-@app.route('/run', methods=['POST'])
-def submit():
-    data = request.form
-    code = data['code']
-    return render_template('index.html', result=run_code(code))
+def safe_eval(expr):
+    '''Safely evaluate arithmetic expressions only.'''
+    def _eval(node):
+        if isinstance(node, ast.Num):
+            return node.n
+        if isinstance(node, ast.BinOp):
+            left = _eval(node.left)
+            right = _eval(node.right)
+            op_type = type(node.op)
+            if op_type in a_allowed_operators:
+                return a_allowed_operators[op_type](left, right)
+            raise ValueError('Unsupported operator: {}'.format(op_type))
+        if isinstance(node, ast.UnaryOp):
+            operand = _eval(node.operand)
+            op_type = type(node.op)
+            if op_type in a_allowed_operators:
+                return a_allowed_operators[op_type](operand)
+            raise ValueError('Unsupported unary operator: {}'.format(op_type))
+        raise ValueError('Unsupported expression type: {}'.format(type(node)))
+    parsed = ast.parse(expr, mode='eval')
+    return _eval(parsed.body)
 
-def run_code(code):
-    # Redirect the output to a string
-    old_stdout = sys.stdout
-    redirected_output = sys.stdout = StringIO()
-
+@app.route('/calculate', methods=['POST'])
+def calculate():
+    data = request.get_json(force=True)
+    expr = data.get('expression', '')
     try:
-        # shhh
-        exec(code)
-        sys.stdout = old_stdout
+        result = safe_eval(expr)
     except Exception as e:
-        sys.stdout = old_stdout
-        return e
-    
-    return redirected_output.getvalue()
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'result': result})
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run(debug=False)
