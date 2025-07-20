@@ -1,43 +1,48 @@
 import os
-from flask import Flask, request, render_template, redirect
+from flask import Flask, request, jsonify, abort
 import requests
-import json
-app = Flask(__name__, static_url_path="/static")
 
-flag = os.environ.get("FLAG")
-# this is so scuffed .-.
-os.system("apachectl start")
+app = Flask(__name__)
+# Load API key from environment; do not hard-code
+API_KEY = os.environ.get('API_KEY')
+GATEWAY_URL = os.environ.get('GATEWAY_URL', 'http://gateway/gateway.php')
 
-@app.route("/")
-def send_money():
-    response = requests.get("http://localhost:80/gateway.php").content
-    accounts = json.loads(response)
-    return render_template("send-money.html", data=accounts)
+@app.before_request
+def check_api_key():
+    key = request.headers.get('X-API-KEY')
+    if not API_KEY or key != API_KEY:
+        abort(401, 'Unauthorized')
 
-@app.route("/check-balance", methods=["GET"])
-def check():
-    response = requests.get("http://localhost:80/gateway.php").content
-    accounts = json.loads(response)
+def validate_account(name):
+    if not isinstance(name, str) or not name.isalnum():
+        abort(400, 'Invalid account identifier')
+    return name
 
-    if (accounts["Eatingfood"] < 0):
-        return render_template("check-balance.html", data=accounts, flag=":(")
-    if (accounts["Eatingfood"] >= 100000):
-        return render_template("check-balance.html", data=accounts, flag=flag)
-    return render_template("check-balance.html", data=accounts)
+def validate_amount(value):
+    try:
+        amt = int(value)
+    except (TypeError, ValueError):
+        abort(400, 'Invalid amount')
+    if amt <= 0:
+        abort(400, 'Amount must be positive')
+    return amt
 
-@app.route("/send", methods=["POST"])
-def send_data():
-    raw_data = request.get_data()
-    recipient = request.form.get("recipient");
-    amount = request.form.get("amount");
+@app.route('/transfer', methods=['POST'])
+def transfer():
+    data = request.get_json() or {}
+    from_acc = validate_account(data.get('from', ''))
+    to_acc = validate_account(data.get('to', ''))
+    amount = validate_amount(data.get('amount'))
+    resp = requests.post(
+        GATEWAY_URL,
+        json={'from': from_acc, 'to': to_acc, 'amount': amount},
+        headers={'X-API-KEY': API_KEY},
+        timeout=5
+    )
+    if resp.status_code != 200:
+        abort(resp.status_code, 'Gateway error')
+    result = resp.json()
+    return jsonify({'status': 'success', 'data': result})
 
-    if (amount == None or (not amount.isdigit()) or int(amount) < 0 or recipient == None or recipient == "Eatingfood"):
-        return redirect("https://media.tenor.com/UlIwB2YVcGwAAAAC/waah-waa.gif")
-    
-    # Send the data to the Apache PHP server
-    raw_data = b"sender=Eatingfood&" + raw_data;
-    requests.post("http://localhost:80/gateway.php", headers={"content-type": request.headers.get("content-type")}, data=raw_data)
-    return redirect("/check-balance")
-
-if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=5000)
+if __name__ == '__main__':
+    app.run(debug=False)
