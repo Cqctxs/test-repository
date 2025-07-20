@@ -1,26 +1,23 @@
 import sqlite3
+import bcrypt
 
-# Connect to the SQLite database
-conn = sqlite3.connect('users.db')
-c = conn.cursor()
+# Connect to database
+db_path = 'users.db'
+conn = sqlite3.connect(db_path)
+cursor = conn.cursor()
 
-# Create table if not exists
-c.execute('''CREATE TABLE IF NOT EXISTS users
-             (username TEXT PRIMARY KEY, password TEXT)''')
+# Sample users list
+users = [('alice', 'alicepass'), ('bob', 'bobpass')]
 
-# Sample user data
-users_data = [
-    ('Alice', 'wxmctf{'),
-    ('Bob', 'j0k35_0n_y0u'),
-    ('Charlie', '_th3r3_4r3'),
-    ('David', 'n0_nucl34r'),
-    ('Eve', '_l4nch_c0d35}')]
+for username, password in users:
+    # Generate salt and hash password using bcrypt
+    salt = bcrypt.gensalt()
+    pw_hash = bcrypt.hashpw(password.encode('utf-8'), salt)
+    # Use parameterized query to store username and hash
+    cursor.execute(
+        "INSERT INTO users (username, password_hash) VALUES (?, ?)",
+        (username, pw_hash.decode('utf-8'))
+    )
 
-# Insert sample data into the table
-c.executemany("INSERT INTO users VALUES (?, ?)", users_data)
-
-# Commit changes and close connection
 conn.commit()
 conn.close()
-
-print("Data inserted successfully into users.db.")
