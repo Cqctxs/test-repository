@@ -1,25 +1,34 @@
-from flask import Flask, render_template, request, jsonify, flash
-import sqlite3
+from flask import Flask, request, jsonify
+import psycopg2
+import os
 
 app = Flask(__name__)
-app.secret_key = b'_5#y2L"F4Q8z\n\xec]/'
+conn_params = {
+    'dbname': os.getenv('DB_NAME'),
+    'user': os.getenv('DB_USER'),
+    'password': os.getenv('DB_PASS'),
+    'host': os.getenv('DB_HOST')
+}
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+def get_user_profile(username):
+    conn = psycopg2.connect(**conn_params)
+    cur = conn.cursor()
+    # Parameterized query prevents injection
+    cur.execute('SELECT id, email FROM users WHERE username = %s', (username,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    return row
 
-@app.route('/login_username', methods=['POST'])
-def login():
-    username = request.form['username']
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    user_info = c.execute(f"SELECT username FROM users WHERE username='{username}'").fetchall()
-    if not user_info:
-        flash('Who are you?', 'error')
-    else:
-        flash(f'Welcome back, {user_info}', 'success')
-    return render_template('index.html')
-    
+@app.route('/profile')
+def profile():
+    username = request.args.get('username', '')
+    if not username.isalnum():
+        return jsonify({'error':'Invalid username'}),400
+    profile = get_user_profile(username)
+    if not profile:
+        return jsonify({'error':'Not found'}),404
+    return jsonify({'id': profile[0], 'email': profile[1]})
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run()
