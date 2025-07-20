@@ -1,25 +1,24 @@
-from flask import Flask, render_template, request, jsonify, flash
-import sqlite3
+from flask import Flask, request, jsonify
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
 app = Flask(__name__)
-app.secret_key = b'_5#y2L"F4Q8z\n\xec]/'
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+def get_db():
+    conn = psycopg2.connect(dbname='app', user='user', password='pass', host='localhost')
+    return conn
 
-@app.route('/login_username', methods=['POST'])
-def login():
-    username = request.form['username']
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    user_info = c.execute(f"SELECT username FROM users WHERE username='{username}'").fetchall()
-    if not user_info:
-        flash('Who are you?', 'error')
-    else:
-        flash(f'Welcome back, {user_info}', 'success')
-    return render_template('index.html')
-    
+@app.route('/items')
+def items():
+    category = request.args.get('category', '')
+    conn = get_db()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    # Parameterized query to prevent SQL injection
+    cursor.execute("SELECT id, name, price FROM items WHERE category = %s", (category,))
+    rows = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return jsonify(rows)
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run()
