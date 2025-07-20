@@ -1,33 +1,37 @@
-from flask import Flask, render_template, request
-import sys
-from io import StringIO
+from flask import Flask, request, jsonify
+import ast
 
 app = Flask(__name__)
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+# Define which AST nodes are allowed for safe evaluation
+def is_safe_node(tree):
+    allowed_nodes = (
+        ast.Expression, ast.BinOp, ast.UnaryOp, ast.Num, ast.Str,
+        ast.Constant, ast.Name, ast.Load, ast.operator, ast.unaryop,
+        ast.Compare, ast.BoolOp
+    )
+    for node in ast.walk(tree):
+        if not isinstance(node, allowed_nodes):
+            return False
+    return True
 
 @app.route('/run', methods=['POST'])
-def submit():
-    data = request.form
-    code = data['code']
-    return render_template('index.html', result=run_code(code))
-
-def run_code(code):
-    # Redirect the output to a string
-    old_stdout = sys.stdout
-    redirected_output = sys.stdout = StringIO()
-
+def run():
+    code = request.form.get('code', '')
     try:
-        # shhh
-        exec(code)
-        sys.stdout = old_stdout
+        # Parse user code in 'eval' mode, not 'exec'
+        tree = ast.parse(code, mode='eval')
+        if not is_safe_node(tree):
+            return jsonify({'error': 'Unsafe code detected'}), 400
+        # Compile and evaluate with no builtins and empty globals
+        result = eval(
+            compile(tree, filename='<ast>', mode='eval'),
+            {'__builtins__': {}},
+            {}
+        )
+        return jsonify({'result': result})
     except Exception as e:
-        sys.stdout = old_stdout
-        return e
-    
-    return redirected_output.getvalue()
+        return jsonify({'error': str(e)}), 400
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run(debug=False)
