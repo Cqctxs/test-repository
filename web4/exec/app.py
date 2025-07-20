@@ -1,80 +1,30 @@
-from flask import Flask, jsonify, request, render_template
+from flask import Flask, request, jsonify
 from pymongo import MongoClient
-from db import db_init
-import os
-
-FLAG = os.environ.get("FLAG", "wxmctf{dummy")
-MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost")
-
-db_init()
 
 app = Flask(__name__)
+client = MongoClient('mongodb://localhost:27017')
+db = client['mydb']
+collection = db['mycollection']
 
-client = MongoClient(MONGO_URI)
+# Define an allowlist of fields that can be queried
+ALLOWED_FIELDS = {'name', 'age', 'email'}
 
-db = client["store"]
-store_products = db["products"]
+@app.route('/find', methods=['GET'])
+def find():
+    field = request.args.get('field', '').strip()
+    value = request.args.get('value', '').strip()
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+    # 1. Validate the field against the allowlist
+    if field not in ALLOWED_FIELDS:
+        return jsonify({"error": "Field not allowed"}), 400
 
+    # 2. Build a safe query without using $where or code execution
+    query = {field: value}
+    try:
+        results = list(collection.find(query, {"_id": 0}))
+        return jsonify(results), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-@app.route('/shop')
-def shop():
-    return render_template('shop.html')
-
-
-@app.route("/api/products", methods=["GET"])
-def get_available_products():
-    products = store_products.find({'$where' : "this.is_published == 1"})
-
-    formatted_products = []
-
-    for product in products:
-        formatted_product = {
-            "name": product["name"],
-            "description": product["description"],
-            "price": product["price"],
-            "image_link": product["image_link"],
-            "is_available" : product["is_available"]
-        }
-        formatted_products.append(formatted_product)
-
-    return jsonify(formatted_products)
-
-@app.route("/api/categories", methods=["GET"])
-def get_categories():
-    
-    categories = store_products.distinct("category")
-
-    return jsonify(categories)
-
-@app.route("/api/products/filter", methods=["POST"])
-def filter_products():
-    filter_params = request.json
-
-    price_order = filter_params.get("price_order", None)
-    category = filter_params.get("category", None)
-
-    filter_query = {'$where' : f"this.category ==  '{category}' && this.is_published == 1"}
-
-    filtered_products = store_products.find(filter_query).sort("price", -1 if price_order == "high_to_low" else 1)
-
-    formatted_products = []
-
-    for product in filtered_products:
-        formatted_product = {
-            "name": product["name"],
-            "description": product["description"],
-            "price": product["price"],
-            "stock": product["stock"],
-            "image_link": product["image_link"]
-        }
-        formatted_products.append(formatted_product)
-
-    return jsonify(formatted_products)
-
-
-if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=1337)
+if __name__ == '__main__':
+    app.run()
