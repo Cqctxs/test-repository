@@ -1,43 +1,45 @@
 import os
-from flask import Flask, request, render_template, redirect
-import requests
-import json
-app = Flask(__name__, static_url_path="/static")
+import re
+import subprocess
+from functools import wraps
+from flask import Flask, request, jsonify, abort
 
-flag = os.environ.get("FLAG")
-# this is so scuffed .-.
-os.system("apachectl start")
+app = Flask(__name__)
+API_KEY = os.environ.get('API_KEY')  # Set this in environment, do not hardcode
+FLAG = os.environ.get('FLAG')        # Sensitive flag loaded from env
 
-@app.route("/")
-def send_money():
-    response = requests.get("http://localhost:80/gateway.php").content
-    accounts = json.loads(response)
-    return render_template("send-money.html", data=accounts)
 
-@app.route("/check-balance", methods=["GET"])
-def check():
-    response = requests.get("http://localhost:80/gateway.php").content
-    accounts = json.loads(response)
+def require_api_key(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        key = request.headers.get('X-API-Key')
+        if not key or key != API_KEY:
+            abort(403, 'Forbidden: Invalid API key')
+        return f(*args, **kwargs)
+    return wrapper
 
-    if (accounts["Eatingfood"] < 0):
-        return render_template("check-balance.html", data=accounts, flag=":(")
-    if (accounts["Eatingfood"] >= 100000):
-        return render_template("check-balance.html", data=accounts, flag=flag)
-    return render_template("check-balance.html", data=accounts)
+@app.route('/run', methods=['POST'])
+@require_api_key
+def run_command():
+    data = request.get_json() or {}
+    cmd = data.get('command', '')
+    # Allow only alphanumeric, spaces, dashes, underscores
+    if not re.fullmatch(r'[A-Za-z0-9_\- ]+', cmd):
+        abort(400, 'Bad Request: Invalid characters in command')
+    parts = cmd.split()
+    try:
+        result = subprocess.run(parts, capture_output=True, text=True, check=True)
+    except subprocess.CalledProcessError as e:
+        return jsonify({'error': e.stderr.strip()}), 400
+    return jsonify({'output': result.stdout.strip()})
 
-@app.route("/send", methods=["POST"])
-def send_data():
-    raw_data = request.get_data()
-    recipient = request.form.get("recipient");
-    amount = request.form.get("amount");
+@app.route('/flag', methods=['GET'])
+@require_api_key
+def get_flag():
+    # Only return the flag to authorized callers
+    if not FLAG:
+        abort(500, 'Flag not configured')
+    return jsonify({'flag': FLAG})
 
-    if (amount == None or (not amount.isdigit()) or int(amount) < 0 or recipient == None or recipient == "Eatingfood"):
-        return redirect("https://media.tenor.com/UlIwB2YVcGwAAAAC/waah-waa.gif")
-    
-    # Send the data to the Apache PHP server
-    raw_data = b"sender=Eatingfood&" + raw_data;
-    requests.post("http://localhost:80/gateway.php", headers={"content-type": request.headers.get("content-type")}, data=raw_data)
-    return redirect("/check-balance")
-
-if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=5000)
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8000)
