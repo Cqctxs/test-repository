@@ -1,25 +1,27 @@
-from flask import Flask, render_template, request, jsonify, flash
-import sqlite3
+import psycopg2
+from flask import Flask, request, jsonify
 
 app = Flask(__name__)
-app.secret_key = b'_5#y2L"F4Q8z\n\xec]/'
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+def get_db():
+    return psycopg2.connect(dbname='mydb', user='user', password='pass', host='localhost')
 
-@app.route('/login_username', methods=['POST'])
-def login():
-    username = request.form['username']
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    user_info = c.execute(f"SELECT username FROM users WHERE username='{username}'").fetchall()
-    if not user_info:
-        flash('Who are you?', 'error')
-    else:
-        flash(f'Welcome back, {user_info}', 'success')
-    return render_template('index.html')
-    
+@app.route('/product')
+def product():
+    pid = request.args.get('id', '')
+    try:
+        pid_int = int(pid)
+    except ValueError:
+        return jsonify({'error': 'Invalid product ID'}), 400
+    conn = get_db()
+    cur = conn.cursor()
+    # Parameterized query prevents SQL injection
+    cur.execute("SELECT id, name, price FROM products WHERE id = %s", (pid_int,))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return jsonify({'error': 'Not found'}), 404
+    return jsonify({'id': row[0], 'name': row[1], 'price': row[2]})
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run()
