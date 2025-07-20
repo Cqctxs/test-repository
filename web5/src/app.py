@@ -1,25 +1,48 @@
-from flask import Flask, render_template, request, jsonify, flash
 import sqlite3
+from flask import Flask, request, session, redirect, render_template_string
 
 app = Flask(__name__)
-app.secret_key = b'_5#y2L"F4Q8z\n\xec]/'
+app.secret_key = 'replace-with-secure-key'
+
+def get_db():
+    conn = sqlite3.connect('users.db')
+    conn.row_factory = sqlite3.Row
+    return conn
+
+@app.route('/login', methods=['GET','POST'])
+def login():
+    msg = ''
+    if request.method == 'POST':
+        uname = request.form['username']
+        pwd   = request.form['password']
+        conn = get_db()
+        cur = conn.cursor()
+        # Use parameterized query
+        cur.execute(
+            'SELECT id FROM users WHERE username=? AND password=?',(uname,pwd)
+        )
+        row = cur.fetchone()
+        conn.close()
+        if row:
+            session['user_id'] = row['id']
+            return redirect('/')
+        else:
+            msg = 'Login failed'
+    return render_template_string(
+        '''
+        <form method="post">
+          <input name="username" placeholder="Username">
+          <input name="password" type="password" placeholder="Password">
+          <input type="submit" value="Login">
+        </form>
+        <div>{{ msg }}</div>
+        ''', msg=msg)
 
 @app.route('/')
-def index():
-    return render_template('index.html')
-
-@app.route('/login_username', methods=['POST'])
-def login():
-    username = request.form['username']
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    user_info = c.execute(f"SELECT username FROM users WHERE username='{username}'").fetchall()
-    if not user_info:
-        flash('Who are you?', 'error')
-    else:
-        flash(f'Welcome back, {user_info}', 'success')
-    return render_template('index.html')
-    
+def home():
+    if 'user_id' not in session:
+        return redirect('/login')
+    return 'Hello, {}'.format(session['user_id'])
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run()
