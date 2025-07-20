@@ -1,33 +1,30 @@
-from flask import Flask, render_template, request
-import sys
-from io import StringIO
+from flask import Flask, request, jsonify
+import ast
 
 app = Flask(__name__)
 
-@app.route('/')
-def index():
-    return render_template('index.html')
-
-@app.route('/run', methods=['POST'])
-def submit():
-    data = request.form
-    code = data['code']
-    return render_template('index.html', result=run_code(code))
-
-def run_code(code):
-    # Redirect the output to a string
-    old_stdout = sys.stdout
-    redirected_output = sys.stdout = StringIO()
-
+# Only allow evaluation of safe literal expressions, not arbitrary code
+def safe_eval(expr):
     try:
-        # shhh
-        exec(code)
-        sys.stdout = old_stdout
-    except Exception as e:
-        sys.stdout = old_stdout
-        return e
-    
-    return redirected_output.getvalue()
+        # ast.literal_eval only evaluates literals (strings, numbers, tuples, lists, dicts, booleans, None)
+        return ast.literal_eval(expr)
+    except (ValueError, SyntaxError):
+        raise ValueError("Invalid expression: only literals are allowed")
+
+@app.route('/evaluate', methods=['POST'])
+def evaluate():
+    data = request.get_json()
+    if not data or 'expr' not in data:
+        return jsonify({'error': 'Missing expr parameter'}), 400
+
+    expr = data['expr']
+    try:
+        # Use safe_eval instead of exec to prevent arbitrary code execution
+        result = safe_eval(expr)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+
+    return jsonify({'result': result})
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run(debug=False)
