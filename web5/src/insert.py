@@ -1,26 +1,30 @@
 import sqlite3
+import os
+import bcrypt
 
-# Connect to the SQLite database
-conn = sqlite3.connect('users.db')
-c = conn.cursor()
+DB_PATH = os.path.join(os.path.dirname(__file__), 'app.db')
 
-# Create table if not exists
-c.execute('''CREATE TABLE IF NOT EXISTS users
-             (username TEXT PRIMARY KEY, password TEXT)''')
+# Read plaintext credentials from secure environment or prompt
+users = [
+    {'username': os.environ.get('USER1_NAME'), 'password': os.environ.get('USER1_PASS')},
+    {'username': os.environ.get('USER2_NAME'), 'password': os.environ.get('USER2_PASS')},
+]
 
-# Sample user data
-users_data = [
-    ('Alice', 'wxmctf{'),
-    ('Bob', 'j0k35_0n_y0u'),
-    ('Charlie', '_th3r3_4r3'),
-    ('David', 'n0_nucl34r'),
-    ('Eve', '_l4nch_c0d35}')]
+conn = sqlite3.connect(DB_PATH)
+cur = conn.cursor()
+cur.execute('''
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL
+)
+''')
 
-# Insert sample data into the table
-c.executemany("INSERT INTO users VALUES (?, ?)", users_data)
+for u in users:
+    if u['username'] and u['password']:
+        # Hash the password before storing
+        pw_hash = bcrypt.hashpw(u['password'].encode('utf-8'), bcrypt.gensalt())
+        cur.execute('INSERT OR IGNORE INTO users (username, password_hash) VALUES (?, ?)', (u['username'], pw_hash))
 
-# Commit changes and close connection
 conn.commit()
 conn.close()
-
-print("Data inserted successfully into users.db.")
