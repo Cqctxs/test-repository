@@ -1,25 +1,20 @@
-from flask import Flask, render_template, request, jsonify, flash
-import sqlite3
+from flask import Flask, request, jsonify
+timport sqlite3
 
 app = Flask(__name__)
-app.secret_key = b'_5#y2L"F4Q8z\n\xec]/'
+DB_PATH = 'app.db'
 
-@app.route('/')
-def index():
-    return render_template('index.html')
-
-@app.route('/login_username', methods=['POST'])
-def login():
-    username = request.form['username']
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    user_info = c.execute(f"SELECT username FROM users WHERE username='{username}'").fetchall()
-    if not user_info:
-        flash('Who are you?', 'error')
-    else:
-        flash(f'Welcome back, {user_info}', 'success')
-    return render_template('index.html')
-    
+@app.route('/search')
+def search():
+    q = request.args.get('q', '')
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    # Use parameterized query to prevent SQL injection
+    cursor.execute("SELECT * FROM products WHERE name LIKE ?", (f"%{q}%",))
+    rows = cursor.fetchall()
+    conn.close()
+    result = [{'id': r[0], 'name': r[1], 'price': r[2]} for r in rows]
+    return jsonify(result)
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run()
