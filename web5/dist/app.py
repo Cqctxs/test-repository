@@ -1,25 +1,38 @@
-from flask import Flask, render_template, request, jsonify, flash
+import os
 import sqlite3
+from flask import Flask, g, jsonify, abort
 
 app = Flask(__name__)
-app.secret_key = b'_5#y2L"F4Q8z\n\xec]/'
+DATABASE = os.getenv('SQLITE_PATH', '/data/users.db')
 
-@app.route('/')
-def index():
-    return render_template('index.html')
 
-@app.route('/login_username', methods=['POST'])
-def login():
-    username = request.form['username']
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    user_info = c.execute(f"SELECT username FROM users WHERE username='{username}'").fetchall()
-    if not user_info:
-        flash('Who are you?', 'error')
-    else:
-        flash(f'Welcome back, {user_info}', 'success')
-    return render_template('index.html')
-    
+def get_db():
+    db = getattr(g, '_database', None)
+    if db is None:
+        db = sqlite3.connect(DATABASE)
+        db.row_factory = sqlite3.Row
+        g._database = db
+    return db
+
+@app.teardown_appcontext
+def close_connection(exception):
+    db = getattr(g, '_database', None)
+    if db is not None:
+        db.close()
+
+@app.route('/user/<username>')
+def get_user(username):
+    # Use parameterized query to prevent SQL injection
+    db = get_db()
+    cursor = db.execute('SELECT id, username, role FROM users WHERE username = ?', (username,))
+    row = cursor.fetchone()
+    if row is None:
+        abort(404, description='User not found')
+    return jsonify({
+        'id': row['id'],
+        'username': row['username'],
+        'role': row['role']
+    })
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5002)))
