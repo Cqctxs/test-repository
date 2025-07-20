@@ -1,33 +1,49 @@
-from flask import Flask, render_template, request
-import sys
-from io import StringIO
+from flask import Flask, request, jsonify
+import ast
+import operator as op
 
 app = Flask(__name__)
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+# Supported operators for safe evaluation
+eval_ops = {
+    ast.Add: op.add,
+    ast.Sub: op.sub,
+    ast.Mult: op.mul,
+    ast.Div: op.truediv,
+    ast.Pow: op.pow,
+    ast.BitXor: op.xor,
+    ast.USub: op.neg,
+}
 
-@app.route('/run', methods=['POST'])
-def submit():
-    data = request.form
-    code = data['code']
-    return render_template('index.html', result=run_code(code))
+def safe_eval(expr):
+    """
+    Safely evaluate a mathematical expression node-by-node.
+    Raises ValueError on any disallowed operation.
+    """
+    node = ast.parse(expr, mode='eval').body
+    def _eval(node):
+        if isinstance(node, ast.Num):
+            return node.n
+        elif isinstance(node, ast.BinOp):
+            if type(node.op) not in eval_ops:
+                raise ValueError('Operator not supported')
+            return eval_ops[type(node.op)](_eval(node.left), _eval(node.right))
+        elif isinstance(node, ast.UnaryOp) and type(node.op) in eval_ops:
+            return eval_ops[type(node.op)](_eval(node.operand))
+        else:
+            raise ValueError('Expression not allowed')
+    return _eval(node)
 
-def run_code(code):
-    # Redirect the output to a string
-    old_stdout = sys.stdout
-    redirected_output = sys.stdout = StringIO()
-
+@app.route('/compute', methods=['POST'])
+def compute():
+    data = request.get_json()
+    expr = data.get('expr', '')
     try:
-        # shhh
-        exec(code)
-        sys.stdout = old_stdout
-    except Exception as e:
-        sys.stdout = old_stdout
-        return e
-    
-    return redirected_output.getvalue()
+        # Safely evaluate only mathematical expressions
+        result = safe_eval(expr)
+        return jsonify({'result': result}), 200
+    except (SyntaxError, ValueError) as e:
+        return jsonify({'error': str(e)}), 400
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run(debug=False)
