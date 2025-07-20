@@ -1,33 +1,37 @@
-from flask import Flask, render_template, request
-import sys
-from io import StringIO
+import ast
+from flask import Flask, request, jsonify, abort
 
 app = Flask(__name__)
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+# Whitelist of allowed AST node types for safe arithmetic evaluation
+ALLOWED_NODES = {
+    ast.Expression, ast.BinOp, ast.UnaryOp,
+    ast.Num, ast.Constant,
+    ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Mod, ast.Pow,
+    ast.UAdd, ast.USub,
+    ast.Load, ast.FloorDiv
+}
+
+def secure_eval(expr):
+    """
+    Safely evaluate user-supplied arithmetic expressions by parsing the AST
+    and allowing only whitelisted node types.
+    """
+    try:
+        node = ast.parse(expr, mode='eval')
+    except SyntaxError:
+        abort(400, 'Invalid syntax')
+    for sub in ast.walk(node):
+        if type(sub) not in ALLOWED_NODES:
+            abort(400, f'Unsupported expression element: {type(sub).__name__}')
+    # Evaluate in empty context, no builtins
+    return eval(compile(node, '<secure>', 'eval'), {}, {})
 
 @app.route('/run', methods=['POST'])
-def submit():
-    data = request.form
-    code = data['code']
-    return render_template('index.html', result=run_code(code))
-
-def run_code(code):
-    # Redirect the output to a string
-    old_stdout = sys.stdout
-    redirected_output = sys.stdout = StringIO()
-
-    try:
-        # shhh
-        exec(code)
-        sys.stdout = old_stdout
-    except Exception as e:
-        sys.stdout = old_stdout
-        return e
-    
-    return redirected_output.getvalue()
+def run_code():
+    code = request.form.get('code', '')
+    result = secure_eval(code)
+    return jsonify({'result': result})
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run(debug=False)
