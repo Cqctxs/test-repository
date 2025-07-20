@@ -1,43 +1,58 @@
 import os
-from flask import Flask, request, render_template, redirect
 import requests
-import json
-app = Flask(__name__, static_url_path="/static")
+from flask import Flask, request, jsonify, abort
+declare_app = Flask(__name__)
 
-flag = os.environ.get("FLAG")
-# this is so scuffed .-.
-os.system("apachectl start")
+# Expect a JWT secret or API key for authentication
+API_SECRET = os.getenv('API_SECRET')
+if not API_SECRET:
+    raise RuntimeError('API_SECRET must be set')
 
-@app.route("/")
-def send_money():
-    response = requests.get("http://localhost:80/gateway.php").content
-    accounts = json.loads(response)
-    return render_template("send-money.html", data=accounts)
 
-@app.route("/check-balance", methods=["GET"])
-def check():
-    response = requests.get("http://localhost:80/gateway.php").content
-    accounts = json.loads(response)
+def verify_token(token):
+    # Placeholder for real JWT verification
+    # In production use PyJWT or similar to verify signature and expiry
+    if token == API_SECRET:
+        return {'username': 'authorized_user'}
+    return None
 
-    if (accounts["Eatingfood"] < 0):
-        return render_template("check-balance.html", data=accounts, flag=":(")
-    if (accounts["Eatingfood"] >= 100000):
-        return render_template("check-balance.html", data=accounts, flag=flag)
-    return render_template("check-balance.html", data=accounts)
+@declare_app.route('/transfer', methods=['POST'])
+def transfer():
+    auth_header = request.headers.get('Authorization', '')
+    parts = auth_header.split()
+    if len(parts) != 2 or parts[0].lower() != 'bearer':
+        abort(401, description='Invalid auth header')
+    user = verify_token(parts[1])
+    if not user:
+        abort(401, description='Unauthorized')
 
-@app.route("/send", methods=["POST"])
-def send_data():
-    raw_data = request.get_data()
-    recipient = request.form.get("recipient");
-    amount = request.form.get("amount");
+    data = request.get_json() or {}
+    sender = data.get('sender')
+    recipient = data.get('recipient')
+    amount = data.get('amount')
 
-    if (amount == None or (not amount.isdigit()) or int(amount) < 0 or recipient == None or recipient == "Eatingfood"):
-        return redirect("https://media.tenor.com/UlIwB2YVcGwAAAAC/waah-waa.gif")
-    
-    # Send the data to the Apache PHP server
-    raw_data = b"sender=Eatingfood&" + raw_data;
-    requests.post("http://localhost:80/gateway.php", headers={"content-type": request.headers.get("content-type")}, data=raw_data)
-    return redirect("/check-balance")
+    # Validate inputs
+    if sender != user['username']:
+        abort(403, description='You may only transfer from your own account')
+    if not isinstance(amount, (int, float)) or amount <= 0:
+        abort(400, description='Invalid transfer amount')
+    if not isinstance(recipient, str) or not recipient:
+        abort(400, description='Invalid recipient')
 
-if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=5000)
+    # Forward request to PHP backend
+    php_url = os.getenv('PHP_BACKEND_URL') or 'https://backend.local/gateway.php'
+    try:
+        resp = requests.post(
+            php_url,
+            json={'sender': sender, 'recipient': recipient, 'amount': amount},
+            headers={'Authorization': auth_header},
+            timeout=5
+        )
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        abort(502, description=f'Backend error: {e}')
+
+    return jsonify(resp.json()), resp.status_code
+
+if __name__=='__main__':
+    declare_app.run(host='0.0.0.0', port=int(os.getenv('PORT',5001)))
