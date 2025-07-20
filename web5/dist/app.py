@@ -1,25 +1,27 @@
-from flask import Flask, render_template, request, jsonify, flash
+# web5/dist/app.py
 import sqlite3
+from flask import Flask, request, jsonify
 
 app = Flask(__name__)
-app.secret_key = b'_5#y2L"F4Q8z\n\xec]/'
+DB = 'users.db'
 
-@app.route('/')
-def index():
-    return render_template('index.html')
-
-@app.route('/login_username', methods=['POST'])
+@app.route('/login', methods=['POST'])
 def login():
-    username = request.form['username']
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    user_info = c.execute(f"SELECT username FROM users WHERE username='{username}'").fetchall()
-    if not user_info:
-        flash('Who are you?', 'error')
-    else:
-        flash(f'Welcome back, {user_info}', 'success')
-    return render_template('index.html')
-    
+    data = request.get_json(force=True)
+    username = data.get('username', '')
+    password = data.get('password', '')
+    # Basic input validation
+    if not username or not password:
+        return jsonify({'error': 'Username and password required'}), 400
+    conn = sqlite3.connect(DB)
+    cursor = conn.cursor()
+    # Use parameterized query to prevent SQL injection
+    cursor.execute('SELECT id FROM users WHERE username = ? AND password = ?', (username, password))
+    row = cursor.fetchone()
+    conn.close()
+    if row:
+        return jsonify({'message': 'Login successful'}), 200
+    return jsonify({'error': 'Invalid credentials'}), 401
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run(debug=False)
