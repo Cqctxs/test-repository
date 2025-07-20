@@ -1,43 +1,56 @@
+from flask import Flask, request, jsonify, abort
+import sqlite3
 import os
-from flask import Flask, request, render_template, redirect
-import requests
-import json
-app = Flask(__name__, static_url_path="/static")
 
-flag = os.environ.get("FLAG")
-# this is so scuffed .-.
-os.system("apachectl start")
+app = Flask(__name__)
+DATABASE = 'bank.db'
 
-@app.route("/")
-def send_money():
-    response = requests.get("http://localhost:80/gateway.php").content
-    accounts = json.loads(response)
-    return render_template("send-money.html", data=accounts)
+# Dummy user store
+def get_user(username):
+    conn = sqlite3.connect(DATABASE)
+    cur = conn.execute('SELECT id, balance, is_admin FROM users WHERE username=?', (username,))
+    row = cur.fetchone()
+    conn.close()
+    return {'id': row[0], 'balance': row[1], 'is_admin': bool(row[2])} if row else None
 
-@app.route("/check-balance", methods=["GET"])
-def check():
-    response = requests.get("http://localhost:80/gateway.php").content
-    accounts = json.loads(response)
+@app.route('/transfer', methods=['POST'])
+def transfer():
+    token = request.headers.get('Authorization')
+    if not token or token != os.environ.get('API_TOKEN'):
+        abort(401)
 
-    if (accounts["Eatingfood"] < 0):
-        return render_template("check-balance.html", data=accounts, flag=":(")
-    if (accounts["Eatingfood"] >= 100000):
-        return render_template("check-balance.html", data=accounts, flag=flag)
-    return render_template("check-balance.html", data=accounts)
+    data = request.json
+    from_user = get_user(data.get('from'))
+    to_user = get_user(data.get('to'))
+    amount = data.get('amount')
 
-@app.route("/send", methods=["POST"])
-def send_data():
-    raw_data = request.get_data()
-    recipient = request.form.get("recipient");
-    amount = request.form.get("amount");
+    if not from_user or not to_user or amount is None:
+        abort(400)
+    if not isinstance(amount, (int, float)) or amount <= 0:
+        abort(400)
+    if from_user['balance'] < amount:
+        abort(403)
 
-    if (amount == None or (not amount.isdigit()) or int(amount) < 0 or recipient == None or recipient == "Eatingfood"):
-        return redirect("https://media.tenor.com/UlIwB2YVcGwAAAAC/waah-waa.gif")
-    
-    # Send the data to the Apache PHP server
-    raw_data = b"sender=Eatingfood&" + raw_data;
-    requests.post("http://localhost:80/gateway.php", headers={"content-type": request.headers.get("content-type")}, data=raw_data)
-    return redirect("/check-balance")
+    conn = sqlite3.connect(DATABASE)
+    cur = conn.cursor()
+    cur.execute('UPDATE users SET balance=balance-? WHERE id=?', (amount, from_user['id']))
+    cur.execute('UPDATE users SET balance=balance+? WHERE id=?', (amount, to_user['id']))
+    conn.commit()
+    conn.close()
+    return jsonify({'status':'success'})
 
-if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=5000)
+@app.route('/flag', methods=['GET'])
+def get_flag():
+    token = request.headers.get('Authorization')
+    if not token or token != os.environ.get('API_TOKEN'):
+        abort(401)
+    username = request.args.get('user')
+    user = get_user(username)
+    if not user or user['balance'] < 10000:
+        abort(403)
+    with open('FLAG.txt') as f:
+        flag = f.read().strip()
+    return jsonify({'flag': flag})
+
+if __name__ == '__main__':
+    app.run()
