@@ -1,33 +1,28 @@
-from flask import Flask, render_template, request
-import sys
-from io import StringIO
+from flask import Flask, request, jsonify, abort
+import ast
 
 app = Flask(__name__)
 
-@app.route('/')
-def index():
-    return render_template('index.html')
-
 @app.route('/run', methods=['POST'])
-def submit():
-    data = request.form
-    code = data['code']
-    return render_template('index.html', result=run_code(code))
-
-def run_code(code):
-    # Redirect the output to a string
-    old_stdout = sys.stdout
-    redirected_output = sys.stdout = StringIO()
-
+def run_user_code():
+    # Validate presence of 'expression' and ensure only safe literal expressions
+    user_input = request.form.get('expression')
+    if not user_input:
+        abort(400, description="Missing 'expression' parameter")
     try:
-        # shhh
-        exec(code)
-        sys.stdout = old_stdout
+        # Parse and evaluate only Python literals (numbers, strings, lists, dicts)
+        tree = ast.parse(user_input, mode='eval')
+        # Walk AST to ensure no disallowed nodes
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.Expression, ast.Num, ast.Str, ast.Tuple,
+                                     ast.List, ast.Dict, ast.Set, ast.UnaryOp,
+                                     ast.BinOp, ast.BoolOp, ast.Compare, ast.NameConstant,
+                                     ast.Load)):
+                abort(400, description="Unsafe expression detected")
+        result = ast.literal_eval(tree)
     except Exception as e:
-        sys.stdout = old_stdout
-        return e
-    
-    return redirected_output.getvalue()
+        abort(400, description=f"Invalid expression: {e}")
+    return jsonify({'result': result})
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run(debug=False)
