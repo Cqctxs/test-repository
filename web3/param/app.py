@@ -1,43 +1,50 @@
-import os
-from flask import Flask, request, render_template, redirect
-import requests
-import json
-app = Flask(__name__, static_url_path="/static")
+from flask import Flask, request, jsonify, abort, sessionrom functools import wraps
+import re
 
-flag = os.environ.get("FLAG")
-# this is so scuffed .-.
-os.system("apachectl start")
+app = Flask(__name__)
+app.secret_key = 'replace_with_env_secret'
 
-@app.route("/")
-def send_money():
-    response = requests.get("http://localhost:80/gateway.php").content
-    accounts = json.loads(response)
-    return render_template("send-money.html", data=accounts)
+# Dummy user store for demonstration
+USERS = {'alice': {'password': 'hashed_pw', 'balance': 1000}}
 
-@app.route("/check-balance", methods=["GET"])
-def check():
-    response = requests.get("http://localhost:80/gateway.php").content
-    accounts = json.loads(response)
+# Authentication decorator
+def login_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if 'user' not in session:
+            abort(401, description='Authentication required')
+        return f(*args, **kwargs)
+    return decorated
 
-    if (accounts["Eatingfood"] < 0):
-        return render_template("check-balance.html", data=accounts, flag=":(")
-    if (accounts["Eatingfood"] >= 100000):
-        return render_template("check-balance.html", data=accounts, flag=flag)
-    return render_template("check-balance.html", data=accounts)
+@app.route('/login', methods=['POST'])
+def login():
+    username = request.json.get('username')
+    password = request.json.get('password')
+    # Validate input
+    if not username or not password or not re.match(r'^[a-zA-Z0-9_]{3,20}$', username):
+        abort(400, 'Invalid credentials format')
+    user = USERS.get(username)
+    # TODO: verify hashed password instead of plain compare
+    if user and password == 'plaintext_pw':
+        session['user'] = username
+        return jsonify({'message':'Logged in'})
+    abort(401, 'Invalid username or password')
 
-@app.route("/send", methods=["POST"])
-def send_data():
-    raw_data = request.get_data()
-    recipient = request.form.get("recipient");
-    amount = request.form.get("amount");
+@app.route('/transfer', methods=['POST'])
+@login_required
+def transfer():
+    from_user = session['user']
+    to_user = request.json.get('to')
+    amount = request.json.get('amount')
+    # Input validation
+    if to_user not in USERS or not isinstance(amount, (int, float)) or amount <= 0:
+        abort(400, 'Invalid transfer parameters')
+    if USERS[from_user]['balance'] < amount:
+        abort(400, 'Insufficient funds')
+    # Perform transfer
+    USERS[from_user]['balance'] -= amount
+    USERS[to_user]['balance'] += amount
+    return jsonify({'message':'Transfer successful','balances':{from_user: USERS[from_user]['balance'], to_user: USERS[to_user]['balance']}})
 
-    if (amount == None or (not amount.isdigit()) or int(amount) < 0 or recipient == None or recipient == "Eatingfood"):
-        return redirect("https://media.tenor.com/UlIwB2YVcGwAAAAC/waah-waa.gif")
-    
-    # Send the data to the Apache PHP server
-    raw_data = b"sender=Eatingfood&" + raw_data;
-    requests.post("http://localhost:80/gateway.php", headers={"content-type": request.headers.get("content-type")}, data=raw_data)
-    return redirect("/check-balance")
-
-if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=5000)
+if __name__ == '__main__':
+    app.run(debug=False)
